@@ -1,0 +1,16 @@
+# Environment overrides containing local secrets.
+.env
+
+# Docker and runtime artifacts.
+*.pid
+*.log
+docker-data/
+tmp/
+
+# IDE settings.
+.idea/
+.vscode/
+
+# OS artifacts.
+.DS_Store
+Thumbs.db
