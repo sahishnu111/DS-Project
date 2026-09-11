@@ -1,0 +1,24 @@
+apiVersion: 1 # Grafana alerting provisioning API version.
+
+contactPoints:
+  - orgId: 1 # Grafana organization ID.
+    name: slack-default # Default Slack contact point name.
+    receivers:
+      - uid: slack-default
+        type: slack
+        settings:
+          url: ${SLACK_WEBHOOK_URL} # Slack Incoming Webhook URL from environment variable.
+          recipient: "#alerts" # Default channel for routed alerts.
+          title: "{{ template \"default.title\" . }}" # Reuse Grafana title template.
+          text: "{{ template \"default.message\" . }}" # Reuse Grafana body template.
+        disableResolveMessage: false
+
+policies:
+  - orgId: 1 # Apply policy in default Grafana organization.
+    receiver: slack-default # Route unmatched alerts to Slack by default.
+    group_by:
+      - alertname # Group notifications by alert identity.
+      - severity # Keep severity-based grouping for triage.
+    group_wait: 30s # Initial wait before first notification.
+    group_interval: 5m # Delay between notifications for same group.
+    repeat_interval: 4h # Reminder frequency while alert remains firing.

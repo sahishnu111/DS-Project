@@ -1,0 +1,60 @@
+apiVersion: 1 # Grafana datasource provisioning API version.
+
+datasources:
+  - name: Prometheus # Metrics backend from LGTM bundle.
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://localhost:9090 # Prometheus endpoint inside LGTM container network namespace.
+    isDefault: true # Set as default datasource for dashboard queries.
+    editable: false
+    jsonData:
+      exemplarTraceIdDestinations: # Link metric exemplars to trace IDs in Tempo.
+        - datasourceUid: tempo
+          name: trace_id
+
+  - name: Loki # Logs backend from LGTM bundle.
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://localhost:3100 # Loki endpoint inside LGTM container.
+    editable: false
+    jsonData:
+      maxLines: 1000 # Reasonable default for trace-to-log pivots.
+
+  - name: Tempo # Traces backend from LGTM bundle.
+    uid: tempo
+    type: tempo
+    access: proxy
+    url: http://localhost:3200 # Tempo endpoint inside LGTM container.
+    editable: false
+    jsonData:
+      tracesToLogsV2: # Trace-to-logs correlation setup (Tempo -> Loki).
+        datasourceUid: loki
+        spanStartTimeShift: "-15m"
+        spanEndTimeShift: "15m"
+        tags:
+          - key: service.name
+            value: service_name
+          - key: service_name
+            value: service_name
+        filterByTraceID: true
+        filterBySpanID: true
+      tracesToMetrics: # Trace-to-metrics correlation setup (Tempo -> Prometheus).
+        datasourceUid: prometheus
+        tags:
+          - key: service.name
+            value: service_name
+          - key: service_name
+            value: service_name
+        spanStartTimeShift: "-15m"
+        spanEndTimeShift: "15m"
+        queries:
+          - name: Request Rate
+            query: sum(rate({__name__=~"http.server.request.duration_count|http_server_request_duration_seconds_count",service_name="$${__tags.service_name}"}[5m]))
+      serviceMap: # Enable service map graph using Prometheus metrics.
+        datasourceUid: prometheus
+      search: # Keep search enabled for trace exploration.
+        hide: false
+      nodeGraph: # Keep node graph enabled for dependency analysis.
+        enabled: true

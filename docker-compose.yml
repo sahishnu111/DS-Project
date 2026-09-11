@@ -1,0 +1,64 @@
+services:
+  grafana-lgtm:
+    image: ${LGTM_IMAGE:-grafana/otel-lgtm:latest} # All-in-one LGTM backend container.
+    container_name: grafana-lgtm
+    restart: unless-stopped # Keep observability backend available across host restarts.
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000" # Grafana UI.
+      - "${PROMETHEUS_PORT:-9090}:9090" # Prometheus UI/API.
+      - "${LOKI_PORT:-3100}:3100" # Loki API.
+      - "${TEMPO_PORT:-3200}:3200" # Tempo query API.
+      - "${OTLP_GRPC_PORT:-4317}:4317" # OTLP/gRPC receiver.
+      - "${OTLP_HTTP_PORT:-4318}:4318" # OTLP/HTTP receiver.
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin} # Grafana admin username.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin} # Grafana admin password.
+      PROMETHEUS_EXTRA_ARGS: --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-7d} # TSDB retention.
+    volumes:
+      - grafana_data:/data/grafana # Persist Grafana state (users, dashboards, prefs).
+      - prometheus_data:/data/prometheus # Persist Prometheus TSDB.
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro # Provision datasources as code.
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro # Provision dashboard provider config.
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro # Provisioned dashboard JSON files.
+      - ./alerting:/etc/grafana/provisioning/alerting:ro # Alerting-as-code source files.
+    networks:
+      - observability
+    mem_limit: 2g # Hard memory limit for local host stability.
+    cpus: "2.0" # CPU limit for balanced resource usage.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health | grep -q '\"ok\"'"] # Verify Grafana health API.
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
+
+  otel-demo:
+    image: ${OTEL_DEMO_IMAGE:-ghcr.io/open-telemetry/demo:latest} # Official Astronomy Shop demo.
+    container_name: otel-demo
+    restart: unless-stopped # Restart demo app automatically in local environments.
+    depends_on:
+      grafana-lgtm:
+        condition: service_healthy # Wait for backend before startup.
+    ports:
+      - "${DEMO_UI_PORT:-8080}:8080" # Demo UI ingress.
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://grafana-lgtm:4318} # OTLP/HTTP endpoint target.
+      OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL:-http/protobuf} # Explicitly enforce HTTP OTLP.
+    networks:
+      - observability
+    mem_limit: 4g # Demo is multi-service and needs more memory headroom.
+    cpus: "3.0" # CPU allocation for consistent local performance.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/ | grep -q '<html'"] # Validate demo UI responds.
+      interval: 30s
+      timeout: 10s
+      retries: 8
+      start_period: 90s
+
+networks:
+  observability:
+    driver: bridge # Shared network for app-to-backend communication.
+
+volumes:
+  grafana_data: # Named volume for Grafana persistence.
+  prometheus_data: # Named volume for Prometheus TSDB persistence.
